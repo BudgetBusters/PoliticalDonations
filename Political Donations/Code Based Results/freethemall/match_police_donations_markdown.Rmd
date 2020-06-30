@@ -1,0 +1,145 @@
+---
+title: "police_donations_match"
+output: html_document
+author: "libbie"
+date: 06/20/2020
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## set up environment
+```{r}
+#call packages into environment, install first if needed
+library(tidyverse)
+```
+
+## import data into environment
+```{r}
+#import csvs for police names and for donations
+##(I went into donations csv and changed amount column to numeric before this step)
+
+donations <- read_csv("Donations.csv")
+police <- read_csv("PoliceList-zips.csv")
+
+#head function shows the top of each dataset
+head(donations)
+head(police)
+
+```
+## standardize names in each dataset
+
+Names will be standardized by first splitting first and last names, then eliminating any middle initial, then changing all to lower case, and stitching back together again. For example, 'Abraham,Patrick Olaf' becomes 'patrick abraham.' 
+```{r}
+#standardize police names
+##separate first and last, remove middle names
+police <- police %>% 
+  #split first and last
+  mutate(x = NAME) %>% 
+  separate(x, c("last", "first"), sep = ",") %>% 
+  #remove middle initials
+  mutate(first = str_replace_all(
+    #this regular expression says remove anything that looks like 
+    #space then letter then word boundary (removes initial) OR
+    #any period (removes the period)
+    first, "[[:space:]][[:alpha:]]\\b|\\.", ""))
+
+##make lower case, stitch together into standardized name column
+police <- police %>% 
+  mutate(last = str_to_lower(last),
+         first = str_to_lower(first), 
+         name_std = paste(first, last, sep = " "))
+
+#show results
+police %>% select(NAME, name_std) %>% head()
+```
+```{r}
+#standardize donation names
+##separate first and last, remove middle names
+donations <- donations %>% 
+  #split first and last
+  mutate(x = Contributor) %>% 
+  separate(x, c("last", "first"), sep = ",[[:space:]]") %>% 
+  #remove middle initials
+  mutate(first = str_replace_all(
+    first, "[[:space:]][[:alpha:]]\\b|\\.", ""))
+
+##make lower case, stitch together into standardized name column
+donations <- donations %>% 
+  mutate(last = str_to_lower(last),
+         first = str_to_lower(first), 
+         name_std = paste(first, last, sep = " "))
+
+#extract first five digits of zip so it matches police dataset
+donations <- donations %>% 
+  #subset first five of zip and store as a numeric
+  mutate(zip5 = as.numeric(str_sub(Zip, 1, 5)))
+
+#show results
+donations %>% select(Contributor, name_std, zip5) %>% head()
+```
+## match donors to names of police
+```{r}
+#left join donations to names of police using both name and zip
+donations_police_match <- donations %>% 
+  inner_join(police %>% 
+               #remove first and last from police database so not redundant
+               select(NAME, name_std, POSTAL), 
+             by = c('name_std' = 'name_std', 'zip5' = 'POSTAL'))
+
+##show results
+donations_police_match %>% select(Contributor, Date, Amount, Occupation) %>% head()
+
+##add field for year
+donations_police_match <- donations_police_match %>% 
+  mutate(year = as.numeric(str_sub(Date, -4, -1)))
+
+#write out
+write_csv(donations_police_match, "donations_police_match_3.csv")
+
+```
+```{r}
+#check for issues with donation doubles
+double_match <- donations_police_match %>% 
+  select(Contributor, Date, Amount) %>% 
+  group_by_all() %>% 
+  filter(n()>1) %>% 
+  ungroup()
+```
+
+## data exploration
+```{r}
+## how many different officers donated?
+donations_police_match %>% select(Contributor) %>% n_distinct()
+
+```
+```{r}
+## much did officers donate?
+donations_police_match %>% summarise(sum(Amount))
+```
+```{r}
+#how much did they donate each year in dataset?
+donations_police_match %>% group_by(year) %>% summarise(sum(Amount))
+```
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
